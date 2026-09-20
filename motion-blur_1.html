@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motion Blur — Unidad 2 · Visión Artificial y Robótica</title>
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Sora:wght@200;300;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+/* ===========================================
+   TEMA — "LARGA EXPOSICIÓN"
+   Cambia estas variables para cambiar todo el look.
+   =========================================== */
+:root {
+    --bg:        #060608;
+    --surface:   #0d0d12;
+    --surface-2: #121218;
+    --line:      #1e1e25;
+    --text:      #E8E6E3;
+    --muted:     #9b9791;
+    --dim:       #62605c;
+    --amber:     #FFB020;
+    --cyan:      #35E0D8;
+    --bad:       #FF5A5A;
+
+    --font-display: 'Sora', 'Trebuchet MS', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Consolas', ui-monospace, monospace;
+
+    --stage-bg: #000;
+    --slide-bg: #060608;
+
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur: 0.7s;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ===========================================
+   BASE OBLIGATORIA — ESCENARIO FIJO 16:9
+   =========================================== */
+html, body {
+    width: 100%; height: 100%; margin: 0;
+    overflow: hidden; background: var(--stage-bg, #000);
+}
+.deck-viewport { position: fixed; inset: 0; overflow: hidden; background: var(--stage-bg, #000); }
+.deck-stage {
+    position: absolute; left: 0; top: 0;
+    width: 1920px; height: 1080px; overflow: hidden;
+    transform-origin: 0 0; background: var(--slide-bg, #fff);
+}
+.slide {
+    position: absolute; inset: 0; width: 1920px; height: 1080px;
+    overflow: hidden; display: block;
+    visibility: hidden; opacity: 0; pointer-events: none;
+    background: var(--slide-bg, #fff);
+}
+.slide.active, .slide.visible {
+    visibility: visible; opacity: 1; pointer-events: auto; z-index: 1;
+}
+img, video, canvas, svg { max-width: 100%; max-height: 100%; }
+.deck-controls { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 1000; }
+@media print {
+    html, body { width: 1920px; height: auto; overflow: visible; background: #fff; }
+    .deck-viewport { position: static; overflow: visible; background: #fff; }
+    .deck-stage { position: static; width: auto; height: auto; transform: none !important; background: none; }
+    .slide {
+        position: relative; display: block !important; visibility: visible !important;
+        opacity: 1 !important; pointer-events: auto !important;
+        width: 1920px; height: 1080px; break-after: page; page-break-after: always;
+    }
+    .slide:last-child { break-after: auto; page-break-after: auto; }
+    .deck-controls, .guion { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+}
+
+/* ===========================================
+   TIPOGRAFÍA Y BLOQUES BASE (lienzo 1920×1080)
+   =========================================== */
+.slide { font-family: var(--font-display); color: var(--text); }
+.pad {
+    position: absolute; inset: 0; padding: 70px 100px;
+    display: flex; flex-direction: column; justify-content: space-between;
+}
+.chrome {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--font-mono); font-size: 19px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--dim);
+}
+.chrome b { color: var(--amber); font-weight: 500; }
+.chrome .who { color: var(--cyan); }
+/* text-transform:uppercase convierte "µ" en "Μ" griega: los valores con micras van con .nocaps */
+.nocaps { text-transform: none; letter-spacing: 0.08em; }
+
+.eyebrow {
+    font-family: var(--font-mono); font-size: 20px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--cyan); margin-bottom: 24px;
+    display: flex; align-items: center; gap: 16px;
+}
+.eyebrow::after { content: ""; flex: 0 0 90px; height: 1px; background: var(--cyan); opacity: 0.45; }
+
+h1 { font-size: 168px; font-weight: 800; letter-spacing: -0.045em; line-height: 0.9; }
+h2 { font-size: 100px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.0; }
+h3 { font-size: 58px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.08; }
+.lede { font-size: 36px; font-weight: 300; color: var(--muted); line-height: 1.38; max-width: 33ch; }
+.lede strong { color: var(--text); font-weight: 600; }
+.amber { color: var(--amber); }
+.cyan { color: var(--cyan); }
+
+/* rastro de luz (recurso firma) */
+.trail::before {
+    content: ""; position: absolute; left: -10%; right: -10%; top: 50%;
+    height: 340px; transform: translateY(-50%);
+    background: linear-gradient(90deg, transparent 0%, rgba(255,176,32,0) 8%,
+        rgba(255,176,32,0.20) 34%, rgba(53,224,216,0.15) 62%, rgba(255,176,32,0) 92%);
+    filter: blur(48px); pointer-events: none;
+}
+.trail::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px;
+    transform: translateY(-50%);
+    background: linear-gradient(90deg, transparent, rgba(255,176,32,0.75) 40%, rgba(53,224,216,0.6) 70%, transparent);
+    filter: blur(1px); pointer-events: none;
+}
+
+/* el título arrastra copias de sí mismo */
+.smear { position: relative; display: block; }
+.smear span { position: absolute; left: 0; top: 0; white-space: nowrap; }
+.smear span:nth-child(1) { color: rgba(255,176,32,0.10); transform: translateX(-62px); filter: blur(7px); }
+.smear span:nth-child(2) { color: rgba(255,176,32,0.17); transform: translateX(-41px); filter: blur(4px); }
+.smear span:nth-child(3) { color: rgba(232,230,227,0.27); transform: translateX(-20px); filter: blur(2px); }
+.smear span:nth-child(4) { color: var(--text); position: relative; }
+
+/* lecturas y paneles */
+.readout { display: flex; gap: 0; border-top: 1px solid var(--line); padding-top: 22px; }
+.cell { flex: 1; font-family: var(--font-mono); }
+.cell .k { font-size: 17px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.cell .v { font-size: 26px; color: var(--text); margin-top: 8px; }
+.cell .v u { text-decoration: none; color: var(--amber); }
+.cell.right { text-align: right; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 30px 34px; }
+.panel .p-k {
+    font-family: var(--font-mono); font-size: 17px; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 12px;
+}
+.panel .p-v { font-size: 32px; line-height: 1.3; font-weight: 300; color: var(--text); }
+
+/* entrada */
+.reveal { opacity: 0; transform: translateY(26px);
+    transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.slide.visible .reveal { opacity: 1; transform: translateY(0); }
+.slide.visible .reveal:nth-child(1) { transition-delay: 0.06s; }
+.slide.visible .reveal:nth-child(2) { transition-delay: 0.16s; }
+.slide.visible .reveal:nth-child(3) { transition-delay: 0.26s; }
+.slide.visible .reveal:nth-child(4) { transition-delay: 0.36s; }
+.slide-in { opacity: 0; transform: translateX(-54px); filter: blur(10px);
+    transition: opacity 0.9s var(--ease), transform 0.9s var(--ease), filter 0.9s var(--ease); }
+.slide.visible .slide-in { opacity: 1; transform: translateX(0); filter: blur(0); }
+
+/* portada */
+.cover .smear span { font-size: 168px; font-weight: 800; letter-spacing: -0.045em; line-height: 0.9; }
+.cover .smear { height: 186px; }
+
+/* divisores */
+.divider .num {
+    font-family: var(--font-mono); font-size: 176px; font-weight: 700;
+    color: transparent; -webkit-text-stroke: 2px #191920; line-height: 1;
+    position: absolute; right: 100px; bottom: 132px; letter-spacing: -0.04em;
+}
+.divider h2 { max-width: 17ch; }
+.divider.trail::before, .divider.trail::after { top: 76%; }
+.speaker {
+    display: inline-flex; align-items: center; gap: 18px; margin-top: 34px;
+    font-family: var(--font-mono); font-size: 24px; color: var(--amber); letter-spacing: 0.06em;
+}
+.speaker::before { content: ""; width: 54px; height: 1px; background: var(--amber); }
+
+/* cubetas de luz */
+.buckets { display: flex; gap: 24px; align-items: flex-end; }
+.bucket {
+    width: 88px; height: 180px; border: 2px solid var(--line); border-top: none;
+    border-radius: 0 0 10px 10px; position: relative; overflow: hidden;
+    background: rgba(255,255,255,0.012);
+}
+.bucket i { position: absolute; left: 0; right: 0; bottom: 0; display: block;
+    background: linear-gradient(180deg, rgba(255,176,32,0.85), rgba(255,176,32,0.35)); }
+.bucket b { position: absolute; top: -32px; left: 0; right: 0; text-align: center;
+    font-family: var(--font-mono); font-size: 16px; color: var(--dim); font-weight: 400; }
+
+/* punto → raya */
+.streak-row { display: flex; flex-direction: column; gap: 32px; }
+.streak { display: flex; align-items: center; gap: 26px; }
+.streak .lbl { font-family: var(--font-mono); font-size: 18px; color: var(--dim); width: 150px; letter-spacing: 0.08em; }
+.streak .mark { height: 26px; border-radius: 13px; background: var(--text); }
+.streak .mark.m1 { width: 26px; }
+.streak .mark.m2 { width: 150px; background: linear-gradient(90deg, rgba(232,230,227,0.95), rgba(232,230,227,0.28)); }
+.streak .mark.m3 { width: 420px; background: linear-gradient(90deg, rgba(232,230,227,0.75), rgba(232,230,227,0.10)); }
+
+/* ===========================================
+   DEMOS
+   =========================================== */
+.demo-wrap { display: grid; grid-template-columns: 1fr 520px; gap: 50px; align-items: center; }
+.demo-canvas-box { background: #0a0a0e; border: 1px solid var(--line); border-radius: 12px; padding: 16px; position: relative; }
+.demo-canvas-box.flush { padding: 0; overflow: hidden; }
+.demo-canvas-box canvas { display: block; width: 100%; height: auto; border-radius: 6px; }
+
+.ctrl { margin-top: 24px; }
+.ctrl-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--font-mono); font-size: 18px; color: var(--dim);
+    letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 12px;
+}
+.ctrl-head .val { font-size: 31px; color: var(--amber); letter-spacing: 0; text-transform: none; }
+
+input[type="range"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
+    background: linear-gradient(90deg, var(--line), #2c2c35);
+    border-radius: 3px; outline: none; cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--amber); border: 4px solid #0d0d12;
+    box-shadow: 0 0 22px rgba(255,176,32,0.55); cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb {
+    width: 26px; height: 26px; border-radius: 50%; background: var(--amber);
+    border: 4px solid #0d0d12; box-shadow: 0 0 22px rgba(255,176,32,0.55); cursor: pointer;
+}
+.scale-ends { display: flex; justify-content: space-between; margin-top: 10px;
+    font-family: var(--font-mono); font-size: 16px; color: var(--dim); letter-spacing: 0.06em; }
+
+/* interruptor del estrobo */
+.switch {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px;
+    margin-top: 26px; padding: 18px 22px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--surface); cursor: pointer;
+    font-family: var(--font-mono); font-size: 21px; color: var(--muted);
+    letter-spacing: 0.06em; user-select: none;
+}
+.switch.on { border-color: rgba(255,176,32,0.55); background: rgba(255,176,32,0.07); color: var(--amber); }
+.switch .knob { width: 62px; height: 30px; border-radius: 999px; background: #22222a; position: relative; flex: 0 0 auto; }
+.switch .knob::after {
+    content: ""; position: absolute; top: 4px; left: 4px; width: 22px; height: 22px;
+    border-radius: 50%; background: #55535a; transition: transform 0.25s var(--ease), background 0.25s;
+}
+.switch.on .knob { background: rgba(255,176,32,0.25); }
+.switch.on .knob::after { transform: translateX(32px); background: var(--amber); }
+
+.verdict {
+    margin-top: 26px; padding: 20px 24px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--surface);
+    font-size: 26px; line-height: 1.32; font-weight: 300; min-height: 100px;
+    display: flex; align-items: center;
+}
+.verdict.ok   { border-color: rgba(53,224,216,0.45); background: rgba(53,224,216,0.06); }
+.verdict.warn { border-color: rgba(255,176,32,0.45); background: rgba(255,176,32,0.07); }
+.verdict.bad  { border-color: rgba(255,90,90,0.45);  background: rgba(255,90,90,0.07); }
+
+.stat-row { display: flex; gap: 18px; margin-top: 22px; }
+.stat { flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+.stat .sk { font-family: var(--font-mono); font-size: 15px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--dim); }
+.stat .sv { font-family: var(--font-mono); font-size: 32px; color: var(--text); margin-top: 8px; }
+.stat .sv.big { font-size: 44px; color: var(--amber); }
+.stat .sv.bad { color: var(--bad); }
+.stat .sv.ok { color: var(--cyan); }
+
+.badge { display: inline-block; font-family: var(--font-mono); font-size: 20px;
+    letter-spacing: 0.14em; text-transform: uppercase; padding: 8px 16px; border-radius: 5px; }
+.badge.ok   { color: var(--cyan);  background: rgba(53,224,216,0.12); border: 1px solid rgba(53,224,216,0.4); }
+.badge.warn { color: var(--amber); background: rgba(255,176,32,0.12); border: 1px solid rgba(255,176,32,0.4); }
+.badge.bad  { color: var(--bad);   background: rgba(255,90,90,0.12);  border: 1px solid rgba(255,90,90,0.4); }
+
+/* tabla */
+table.data { width: 100%; border-collapse: collapse; font-family: var(--font-mono); }
+table.data th { text-align: left; font-size: 18px; letter-spacing: 0.13em; text-transform: uppercase;
+    color: var(--dim); font-weight: 400; padding: 0 0 14px; border-bottom: 1px solid var(--line); }
+table.data th.r, table.data td.r { text-align: right; }
+table.data td { font-size: 30px; padding: 15px 0; border-bottom: 1px solid #141419; color: var(--text); }
+table.data tr.hi td { color: var(--cyan); }
+table.data tr.no td { color: var(--bad); }
+table.data td .u { color: var(--dim); font-size: 21px; }
+
+/* comparativas */
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 30px 32px; }
+.card.good { border-color: rgba(53,224,216,0.35); }
+.card.bad  { border-color: rgba(255,90,90,0.3); }
+.card .c-k { font-family: var(--font-mono); font-size: 18px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.card .c-t { font-size: 42px; font-weight: 600; margin: 10px 0 12px; letter-spacing: -0.02em; }
+.card .c-b { font-size: 26px; font-weight: 300; color: var(--muted); line-height: 1.38; }
+.card .c-n { font-family: var(--font-mono); font-size: 38px; margin-top: 16px; }
+.card.good .c-n { color: var(--cyan); }
+.card.bad  .c-n { color: var(--bad); }
+
+.doors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.door { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 28px 28px 32px; position: relative; }
+.door.off { opacity: 0.55; }
+.door .d-n { font-family: var(--font-mono); font-size: 17px; color: var(--dim); letter-spacing: 0.15em; }
+.door .d-t { font-size: 38px; font-weight: 600; margin: 10px 0 12px; letter-spacing: -0.02em; }
+.door .d-b { font-size: 23px; font-weight: 300; color: var(--muted); line-height: 1.36; }
+.door .d-tag { position: absolute; top: 24px; right: 26px; font-family: var(--font-mono); font-size: 16px; letter-spacing: 0.1em; }
+.door.off .d-tag { color: var(--bad); }
+.door.win { border-color: rgba(255,176,32,0.5); background: rgba(255,176,32,0.05); }
+.door.win .d-tag { color: var(--amber); }
+
+/* ===========================================
+   CROMO FUERA DEL ESCENARIO + GUIÓN
+   =========================================== */
+.deck-controls {
+    display: flex; align-items: center; gap: 14px;
+    font-family: var(--font-mono); font-size: 13px; color: #55535a; letter-spacing: 0.1em;
+    background: rgba(6,6,8,0.82); padding: 8px 14px; border-radius: 999px;
+    border: 1px solid #1a1a20; backdrop-filter: blur(6px);
+}
+.deck-controls button { background: none; border: none; color: #8a8890; font-size: 15px;
+    cursor: pointer; padding: 2px 6px; font-family: var(--font-mono); }
+.deck-controls button:hover { color: var(--amber); }
+.deck-controls .hint { color: #3e3c42; }
+.progress { position: fixed; left: 0; top: 0; height: 2px; background: var(--amber);
+    z-index: 1001; transition: width 0.35s var(--ease); box-shadow: 0 0 12px rgba(255,176,32,0.7); }
+
+/* panel de guión: para ensayar, se apaga con G */
+.guion {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 1002;
+    background: rgba(8,8,11,0.96); border-top: 1px solid #23232b;
+    padding: 20px 30px 22px; display: none; backdrop-filter: blur(8px);
+}
+.guion.show { display: block; }
+.guion .g-who {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--cyan); margin-bottom: 8px;
+}
+.guion .g-text { font-family: var(--font-display); font-size: 20px; line-height: 1.5; color: #d8d6d3; font-weight: 300; max-width: 150ch; }
+.guion .g-text b { color: var(--amber); font-weight: 600; }
+.guion .g-do {
+    margin-top: 10px; font-family: var(--font-mono); font-size: 14px; color: var(--dim); letter-spacing: 0.05em;
+}
+.edit-hotzone { position: fixed; top: 0; left: 0; width: 80px; height: 80px; z-index: 10000; cursor: pointer; }
+.edit-toggle {
+    position: fixed; top: 16px; left: 16px; z-index: 10001;
+    background: rgba(6,6,8,0.9); border: 1px solid #1a1a20; color: #8a8890;
+    border-radius: 8px; padding: 8px 12px; font-family: var(--font-mono); font-size: 13px;
+    cursor: pointer; opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+}
+.edit-toggle.show, .edit-toggle.active { opacity: 1; pointer-events: auto; }
+.edit-toggle.active { color: var(--amber); border-color: rgba(255,176,32,0.5); }
+body.editing [contenteditable="true"]:hover { outline: 1px dashed rgba(255,176,32,0.5); }
+body.editing [contenteditable="true"]:focus { outline: 2px solid var(--amber); }
+</style>
+
+<div class="deck-viewport">
+  <main class="deck-stage" id="deckStage">
+
+    <!-- ============ 01 · PORTADA ============ -->
+    <section class="slide cover trail active">
+      <div class="pad">
+        <div class="chrome reveal">
+          <span>Lic. en Visión Artificial y Robótica · CIICAp</span>
+          <span>Unidad 2 · <b>Evaluación</b></span>
+        </div>
+        <div>
+          <div class="eyebrow reveal">Lo que el sensor no te cuenta</div>
+          <div class="smear reveal">
+            <span>MOTION BLUR</span><span>MOTION BLUR</span><span>MOTION BLUR</span><span>MOTION BLUR</span>
+          </div>
+          <p class="lede reveal" style="margin-top:40px; max-width:38ch">Cuando la cámara te dice dónde <strong>estuvo</strong> el objeto, no dónde está.</p>
+        </div>
+        <div class="readout reveal">
+          <div class="cell"><div class="k">Exponen</div><div class="v">Lara Ocampo · Maciel Ramírez · Sotelo Rodas</div></div>
+          <div class="cell right"><div class="k">Caso</div><div class="v">robot que devuelve <u>pelotas de ping-pong</u></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 02 · DIVISOR 1 ============ -->
+    <section class="slide divider trail">
+      <div class="pad">
+        <div class="chrome reveal"><span>Bloque 1 de 3</span><span class="who">Lara Ocampo Luis Adrián</span></div>
+        <div>
+          <div class="eyebrow reveal">Empecemos por lo raro</div>
+          <h2 class="slide-in">¿Por qué la cámara <span class="amber">no congela</span> lo que se mueve?</h2>
+          <div class="speaker reveal">Expone Lara Ocampo</div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>02</span></div>
+      </div>
+      <div class="num">01</div>
+    </section>
+
+    <!-- ============ 03 · LA CÁMARA JUNTA LUZ ============ -->
+    <section class="slide">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Lara Ocampo</span><span>La idea base</span></div>
+        <div style="display:grid; grid-template-columns: 1fr 620px; gap:70px; align-items:center;">
+          <div>
+            <h2 class="slide-in" style="margin-bottom:30px">Una cámara no<br>toma fotos.<br><span class="amber">Junta luz.</span></h2>
+            <p class="lede reveal">Cada píxel es una <strong>cubeta diminuta</strong>. Al abrir el obturador empiezan a caer gotas de luz. Al cerrarlo, se cuenta cuántas juntó cada cubeta.</p>
+          </div>
+          <div class="reveal">
+            <div class="buckets">
+              <div class="bucket"><b>10 µs</b><i style="height:6%"></i></div>
+              <div class="bucket"><b>100 µs</b><i style="height:20%"></i></div>
+              <div class="bucket"><b>1 ms</b><i style="height:48%"></i></div>
+              <div class="bucket"><b>5 ms</b><i style="height:78%"></i></div>
+              <div class="bucket"><b>10 ms</b><i style="height:100%"></i></div>
+            </div>
+            <p style="font-family:var(--font-mono); font-size:19px; color:var(--dim); margin-top:40px; line-height:1.6; letter-spacing:0.04em;">
+              tiempo de exposición (t_exp)<br>= cuánto dejas las cubetas destapadas
+            </p>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>03</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 04 · PUNTO → RAYA ============ -->
+    <section class="slide">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Lara Ocampo</span><span>De dónde sale el arrastre</span></div>
+        <div style="display:grid; grid-template-columns: 1fr 680px; gap:60px; align-items:center;">
+          <div>
+            <div class="eyebrow reveal">La analogía</div>
+            <h3 class="slide-in" style="margin-bottom:28px">Apoyas un crayón y arrastras la hoja: no queda un punto, queda una <span class="amber">raya</span>.</h3>
+            <p class="lede reveal">La foto final es el <strong>promedio de todas las posiciones</strong> que ocupó el objeto mientras el sensor juntaba luz. No es un problema de enfoque: es tiempo pintado sobre el espacio.</p>
+          </div>
+          <div class="reveal streak-row">
+            <div class="streak"><span class="lbl">objeto quieto</span><span class="mark m1"></span></div>
+            <div class="streak"><span class="lbl">se mueve poco</span><span class="mark m2"></span></div>
+            <div class="streak"><span class="lbl">se mueve mucho</span><span class="mark m3"></span></div>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>04</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 05 · DEMO A: EXPOSICIÓN ============ -->
+    <section class="slide" data-demo="fan">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Lara Ocampo</span><span>Demo 1 · ventilador a <b>3 000 rpm</b></span></div>
+        <div class="demo-wrap">
+          <div class="demo-canvas-box reveal">
+            <canvas id="fanCanvas" width="1560" height="860" aria-label="Simulador de exposición"></canvas>
+          </div>
+          <div class="reveal">
+            <div class="eyebrow">Demo 1 · exposición</div>
+            <h3 style="margin-bottom:6px">Mueve el tiempo.</h3>
+            <div class="ctrl">
+              <div class="ctrl-head"><span>t_exp</span><span class="val" id="fanVal">400 µs</span></div>
+              <input type="range" id="fanRange" min="0" max="1000" value="500" aria-label="Tiempo de exposición">
+              <div class="scale-ends"><span>10 µs</span><span>20 ms</span></div>
+            </div>
+            <div class="stat-row">
+              <div class="stat"><div class="sk">Giró</div><div class="sv" id="fanDeg">7.2°</div></div>
+              <div class="stat"><div class="sk">Luz recogida</div><div class="sv" id="fanLux">1.0×</div></div>
+            </div>
+            <div class="verdict warn" id="fanVerdict">Este es el trato: cambias nitidez por luz.</div>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>05</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 06 · DIVISOR 2 ============ -->
+    <section class="slide divider trail">
+      <div class="pad">
+        <div class="chrome reveal"><span>Bloque 2 de 3</span><span class="who">Maciel Ramírez Bruno</span></div>
+        <div>
+          <div class="eyebrow reveal">Ahora con números</div>
+          <h2 class="slide-in">Un robot que devuelve <span class="amber">smashes</span>.</h2>
+          <div class="speaker reveal">Expone Maciel Ramírez Bruno</div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>06</span></div>
+      </div>
+      <div class="num">02</div>
+    </section>
+
+    <!-- ============ 07 · LA FÓRMULA ============ -->
+    <section class="slide">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Maciel Ramírez</span><span>La única fórmula de hoy</span></div>
+        <div>
+          <div class="eyebrow reveal">Arrastre en píxeles</div>
+          <div class="reveal" style="font-family:var(--font-mono); font-size:78px; letter-spacing:-0.02em; margin-bottom:48px; line-height:1.25;">
+            arrastre <span style="color:var(--dim)">=</span>
+            <span class="amber">velocidad</span> <span style="color:var(--dim)">×</span>
+            <span class="cyan">t_exp</span> <span style="color:var(--dim)">÷</span>
+            <span>GSD</span>
+          </div>
+          <div class="doors reveal">
+            <div class="panel"><div class="p-k">Velocidad</div><div class="p-v">Qué tan rápido cruza la pelota frente a la cámara.</div></div>
+            <div class="panel"><div class="p-k">t_exp</div><div class="p-v">Cuánto dejaste las cubetas destapadas.</div></div>
+            <div class="panel"><div class="p-k">GSD</div><div class="p-v">Cuántos milímetros del mundo real le tocan a <em>un</em> píxel.</div></div>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>07</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 08 · DEMO B: CALCULADORA ============ -->
+    <section class="slide" data-demo="calc">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Maciel Ramírez</span><span>Cámara 1280 px · 1.2 m de mesa · <b class="nocaps">GSD = 0.94 mm/px</b></span></div>
+        <div class="demo-wrap" style="grid-template-columns: 1fr 540px;">
+          <div class="reveal">
+            <div class="demo-canvas-box flush">
+              <canvas id="blurCanvas" width="1460" height="520" aria-label="Arrastre de la pelota"></canvas>
+            </div>
+            <div class="stat-row">
+              <div class="stat"><div class="sk">Se movió</div><div class="sv" id="calcMm">25.0 mm</div></div>
+              <div class="stat"><div class="sk">Arrastre</div><div class="sv big" id="calcPx">26.7 px</div></div>
+              <div class="stat"><div class="sk">t_exp para 1 px</div><div class="sv" id="calcMax">37.5 µs</div></div>
+            </div>
+          </div>
+          <div class="reveal">
+            <div class="eyebrow">Demo 2 · calculadora</div>
+            <div class="ctrl">
+              <div class="ctrl-head"><span>Velocidad</span><span class="val" id="vVal">25 m/s</span></div>
+              <input type="range" id="vRange" min="1" max="30" value="25" aria-label="Velocidad de la pelota">
+              <div class="scale-ends"><span>1 m/s · peloteo lento</span><span>30 m/s · smash</span></div>
+            </div>
+            <div class="ctrl" style="margin-top:30px">
+              <div class="ctrl-head"><span>t_exp</span><span class="val" id="tVal">1 ms</span></div>
+              <input type="range" id="tRange" min="0" max="1000" value="750" aria-label="Tiempo de exposición">
+              <div class="scale-ends"><span>1 µs</span><span>10 ms</span></div>
+            </div>
+            <div class="verdict bad" id="calcVerdict">
+              <span><span class="badge bad" id="calcBadge">Inservible</span><br><span style="display:inline-block;margin-top:12px" id="calcMsg">La pelota se vuelve una raya de 27 píxeles.</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>08</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 09 · LA MEDICIÓN MIENTE ============ -->
+    <section class="slide">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Maciel Ramírez</span><span>Smash a 25 m/s · t_exp de <b class="nocaps">1 ms</b></span></div>
+        <div>
+          <div class="eyebrow reveal">Lo que casi nadie dice</div>
+          <h2 class="slide-in" style="max-width:26ch; margin-bottom:46px">El blur no solo se ve feo:<br><span class="amber">corrompe la medición</span>.</h2>
+          <div class="two reveal" style="gap:26px">
+            <div class="card bad">
+              <div class="c-k">Error 1 · tamaño</div>
+              <div class="c-t">La pelota se infla</div>
+              <div class="c-b">Mide 40 mm, pero en la imagen abarca 65 mm. Si el robot estima distancia por tamaño, cree que está más cerca.</div>
+              <div class="c-n">1.62× más grande</div>
+            </div>
+            <div class="card bad">
+              <div class="c-k">Error 2 · posición</div>
+              <div class="c-t">La medición llega tarde</div>
+              <div class="c-b">El centro de la mancha es el punto medio del recorrido: la mitad de la exposición. La cámara reporta el pasado.</div>
+              <div class="c-n">12.5 mm atrás</div>
+            </div>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>09</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 10 · LA REGLA ============ -->
+    <section class="slide trail">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Maciel Ramírez</span><span>El criterio que se usa en ingeniería</span></div>
+        <div>
+          <div class="eyebrow reveal">Regla de diseño</div>
+          <h2 class="slide-in" style="max-width:24ch">El arrastre tiene que caber<br>en <span class="amber">un solo píxel</span>.</h2>
+          <div class="readout reveal" style="margin-top:58px">
+            <div class="cell"><div class="k">Peloteo · 10 m/s</div><div class="v" style="font-size:36px">t_exp ≤ <u>94 µs</u></div></div>
+            <div class="cell"><div class="k">Smash · 25 m/s</div><div class="v" style="font-size:36px">t_exp ≤ <u>37.5 µs</u></div></div>
+            <div class="cell right"><div class="k">Si te pasas</div><div class="v" style="font-size:36px">el robot golpea al vacío</div></div>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>10</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 11 · DIVISOR 3 ============ -->
+    <section class="slide divider trail">
+      <div class="pad">
+        <div class="chrome reveal"><span>Bloque 3 de 3</span><span class="who">Sotelo Rodas Christian</span></div>
+        <div>
+          <div class="eyebrow reveal">Y aquí viene la trampa</div>
+          <h2 class="slide-in">Bajamos el tiempo…<br>y todo sale <span class="amber">negro</span>.</h2>
+          <div class="speaker reveal">Expone Sotelo Rodas Christian</div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>11</span></div>
+      </div>
+      <div class="num">03</div>
+    </section>
+
+    <!-- ============ 12 · DEMO C: LUZ vs GANANCIA ============ -->
+    <section class="slide" data-demo="noise">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Sotelo Rodas</span><span>Demo 3 · el ruido aparece cuando falta luz</span></div>
+        <div class="demo-wrap" style="grid-template-columns: 1fr 540px;">
+          <div class="reveal">
+            <div class="demo-canvas-box flush">
+              <canvas id="noiseCanvas" width="1460" height="620" aria-label="Simulación de ruido por falta de luz"></canvas>
+            </div>
+            <div class="stat-row">
+              <div class="stat"><div class="sk">Fotones por píxel</div><div class="sv" id="nPhot">2 000</div></div>
+              <div class="stat"><div class="sk">Relación señal-ruido</div><div class="sv" id="nSnr">45 : 1</div></div>
+            </div>
+          </div>
+          <div class="reveal">
+            <div class="eyebrow">Demo 3 · ganancia vs luz</div>
+            <div class="ctrl">
+              <div class="ctrl-head"><span>t_exp</span><span class="val" id="nTval">10 ms</span></div>
+              <input type="range" id="nTrange" min="0" max="1000" value="1000" aria-label="Tiempo de exposición">
+              <div class="scale-ends"><span>20 µs · congela</span><span>10 ms · embarra</span></div>
+            </div>
+            <div class="ctrl" style="margin-top:26px">
+              <div class="ctrl-head"><span>Ganancia</span><span class="val" id="nGval">0 dB</span></div>
+              <input type="range" id="nGrange" min="0" max="54" value="0" aria-label="Ganancia">
+              <div class="scale-ends"><span>0 dB</span><span>54 dB</span></div>
+            </div>
+            <div class="switch" id="nStrobe" role="button" tabindex="0" aria-pressed="false">
+              <span>Luz estroboscópica</span><span class="knob"></span>
+            </div>
+            <div class="verdict ok" id="nVerdict">Con 10 ms hay luz de sobra… pero ya sabemos qué pasa con el movimiento.</div>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>12</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 13 · DEMO D: GLOBAL vs ROLLING ============ -->
+    <section class="slide" data-demo="shutter">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Sotelo Rodas</span><span>Demo 4 · el otro enemigo: cómo se lee el sensor</span></div>
+        <div class="demo-wrap" style="grid-template-columns: 1fr 470px;">
+          <div class="reveal">
+            <div class="demo-canvas-box flush">
+              <canvas id="shutterCanvas" width="1500" height="600" aria-label="Obturador global contra rolling"></canvas>
+            </div>
+            <div class="stat-row">
+              <div class="stat"><div class="sk">Barrido del sensor</div><div class="sv" id="shReadout">15 ms</div></div>
+              <div class="stat"><div class="sk">Desfase arriba-abajo</div><div class="sv bad" id="shSkew">225 mm</div></div>
+            </div>
+          </div>
+          <div class="reveal">
+            <div class="eyebrow">Demo 4 · obturador</div>
+            <h3 style="margin-bottom:16px; font-size:46px">No todos los<br>píxeles miran<br>al mismo tiempo.</h3>
+            <p class="lede" style="font-size:27px; max-width:26ch">El <strong>rolling shutter</strong> lee el sensor renglón por renglón. Para cuando llega abajo, el objeto ya se movió: la imagen sale <span class="amber">inclinada</span>.</p>
+            <div class="ctrl" style="margin-top:28px">
+              <div class="ctrl-head"><span>Velocidad</span><span class="val" id="shVal">15 m/s</span></div>
+              <input type="range" id="shRange" min="1" max="30" value="15" aria-label="Velocidad del objeto">
+              <div class="scale-ends"><span>1 m/s</span><span>30 m/s</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="chrome reveal"><span>Motion Blur</span><span>13</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 14 · CIERRE ============ -->
+    <section class="slide trail">
+      <div class="pad">
+        <div class="chrome reveal"><span class="who">Sotelo Rodas</span><span>Para llevarse a casa</span></div>
+        <div>
+          <div class="eyebrow reveal">Tres puertas, una sirve</div>
+          <div class="doors reveal" style="margin-bottom:46px">
+            <div class="door off">
+              <div class="d-tag">no</div><div class="d-n">PUERTA 1</div>
+              <div class="d-t">Ganancia</div>
+              <div class="d-b">No crea luz: amplifica la que hay, con ruido incluido.</div>
+            </div>
+            <div class="door off">
+              <div class="d-tag">límite</div><div class="d-n">PUERTA 2</div>
+              <div class="d-t">Abrir el lente</div>
+              <div class="d-b">Tiene tope, y al abrirlo pierdes profundidad de campo.</div>
+            </div>
+            <div class="door win">
+              <div class="d-tag">sí</div><div class="d-n">PUERTA 3</div>
+              <div class="d-t">Más luz</div>
+              <div class="d-b">Un destello de microsegundos congela sin pedirle nada al obturador.</div>
+            </div>
+          </div>
+          <h3 class="slide-in" style="max-width:30ch">Congelar el movimiento no se paga con <span class="amber">tiempo</span>. Se paga con <span class="amber">luz</span>.</h3>
+        </div>
+        <div class="readout reveal">
+          <div class="cell"><div class="k">Gracias</div><div class="v">Lara Ocampo · Maciel Ramírez · Sotelo Rodas</div></div>
+          <div class="cell right"><div class="k">Unidad 2</div><div class="v">Visión Artificial y Robótica · CIICAp</div></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="progress" id="progress" style="width:0"></div>
+<div class="deck-controls">
+  <button id="btnPrev" aria-label="Anterior">◀</button>
+  <span id="counter">01 / 14</span>
+  <button id="btnNext" aria-label="Siguiente">▶</button>
+  <span class="hint">G = guión</span>
+</div>
+<div class="guion" id="guion">
+  <div class="g-who" id="guionWho"></div>
+  <div class="g-text" id="guionText"></div>
+  <div class="g-do" id="guionDo"></div>
+</div>
+<div class="edit-hotzone" aria-hidden="true"></div>
+<button class="edit-toggle" id="editToggle" title="Modo edición (E)">editar</button>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =========================================================
+     GUIÓN — lo que dice cada quien, corto y fácil de memorizar.
+     Se muestra y se oculta con la tecla G. Apagado por defecto.
+     ========================================================= */
+  var GUION = [
+    { who: 'Los tres · 15 s',
+      text: 'Buenas tardes. Somos Lara, Bruno y Christian. Vamos a hablar de <b>motion blur</b>: por qué una foto sale “embarrada” cuando algo se mueve, y por qué eso le arruina la vida a un robot.',
+      do: 'Al terminar la frase, avanza.' },
+    { who: 'Lara · 10 s',
+      text: 'Empiezo yo. Primero hay que entender algo que suena obvio pero no lo es: <b>la cámara no congela nada</b>.',
+      do: '' },
+    { who: 'Lara · 40 s',
+      text: 'Una cámara no toma fotos: <b>junta luz</b>. Imaginen que cada píxel es una cubeta chiquita. Cuando se abre el obturador, empiezan a caer gotas de luz dentro de cada cubeta. Cuando se cierra, se cuenta cuántas juntó. El tiempo de exposición es, literalmente, <b>cuánto tiempo dejas las cubetas destapadas</b>.',
+      do: 'Señala las cubetas: más tiempo, más llena.' },
+    { who: 'Lara · 35 s',
+      text: 'Ahora, ¿de dónde sale la mancha? Piensen en un crayón: si lo apoyan y arrastran la hoja, no queda un punto, <b>queda una raya</b>. Lo mismo pasa aquí: la foto es el promedio de todas las posiciones que ocupó el objeto mientras el sensor juntaba luz. Por eso el blur <b>no se arregla enfocando</b>.',
+      do: '' },
+    { who: 'Lara · 50 s',
+      text: 'Véanlo en vivo. Este es un ventilador a tres mil vueltas por minuto. Si bajo el tiempo de exposición, las aspas <b>se congelan</b>… pero miren qué oscuro queda todo. Y si lo subo, hay luz de sobra, pero las aspas <b>desaparecen</b>. Ese es el trato: nitidez a cambio de luz.',
+      do: 'Mueve el slider a los dos extremos y déjalo en medio.' },
+    { who: 'Bruno · 10 s',
+      text: 'Gracias, Lara. Eso que vieron se puede <b>calcular</b>, y el ejemplo que vamos a usar es un robot que devuelve pelotas de ping-pong.',
+      do: '' },
+    { who: 'Bruno · 35 s',
+      text: 'Solo necesitamos una fórmula: <b>arrastre igual a velocidad por tiempo de exposición, entre GSD</b>. GSD es cuántos milímetros del mundo real le tocan a un píxel. En nuestra cámara, un píxel ve <b>0.94 milímetros</b>.',
+      do: '' },
+    { who: 'Bruno · 50 s',
+      text: 'Con esto ya podemos jugar. Un smash va a <b>25 metros por segundo</b>. Con una milésima de segundo de exposición, la pelota se arrastra <b>27 píxeles</b>: deja de ser pelota y se vuelve una raya. Si bajo el tiempo, vuelve a ser pelota.',
+      do: 'Mueve el tiempo de 1 ms hasta 37 µs.' },
+    { who: 'Bruno · 45 s',
+      text: 'Y aquí está lo que casi nadie dice: el blur <b>no solo se ve feo, corrompe la medición</b>. La pelota mide 40 milímetros pero en la imagen ocupa 65: el robot cree que está más cerca. Y peor: el centro de la mancha corresponde a la <b>mitad de la exposición</b>, o sea que la cámara reporta dónde estuvo, no dónde está.',
+      do: '' },
+    { who: 'Bruno · 25 s',
+      text: 'Por eso en ingeniería se usa una regla sencilla: <b>el arrastre debe caber en un píxel</b>. Para un smash eso significa <b>37 microsegundos</b> o menos. Te paso a ti, Christian.',
+      do: '' },
+    { who: 'Christian · 10 s',
+      text: 'Perfecto. Entonces ya sabemos la solución: bajarle al tiempo. Ojalá fuera tan fácil.',
+      do: '' },
+    { who: 'Christian · 50 s',
+      text: 'Porque si bajo el tiempo, <b>entra 267 veces menos luz</b>. Alguien dirá: súbele a la ganancia. Miren lo que pasa — la imagen se aclara, pero <b>el ruido se come la pelota</b>. La ganancia no crea luz, solo amplifica lo que hay, ruido incluido. Ahora enciendo el estrobo: mismo tiempo cortito, y la imagen sale limpia.',
+      do: 'Baja el tiempo, sube la ganancia, luego enciende el estrobo.' },
+    { who: 'Christian · 40 s',
+      text: 'Y hay un segundo enemigo. Muchas cámaras leen el sensor <b>renglón por renglón</b>: eso es rolling shutter. Para cuando el barrido llega abajo, el objeto ya se movió, y la imagen sale <b>inclinada</b>. Por eso en visión industrial se usa obturador global.',
+      do: 'Sube la velocidad y muestra cómo se chueca.' },
+    { who: 'Christian · 30 s',
+      text: 'Para cerrar: hay tres caminos. Ganancia, que mete ruido. Abrir el lente, que tiene tope. Y luz, que sí funciona. La idea que queremos que se lleven es esta: <b>congelar el movimiento no se paga con tiempo, se paga con luz</b>. Gracias.',
+      do: '' }
+  ];
+
+  /* =========================================================
+     1. CONTROLADOR DE DIAPOSITIVAS
+     ========================================================= */
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var stage = document.getElementById('deckStage');
+  var counter = document.getElementById('counter');
+  var progress = document.getElementById('progress');
+  var guionBox = document.getElementById('guion');
+  var guionWho = document.getElementById('guionWho');
+  var guionText = document.getElementById('guionText');
+  var guionDo = document.getElementById('guionDo');
+  var current = 0;
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  function scaleStage() {
+    var f = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    var x = (window.innerWidth - 1920 * f) / 2;
+    var y = (window.innerHeight - 1080 * f) / 2;
+    stage.style.transform = 'translate(' + x + 'px, ' + y + 'px) scale(' + f + ')';
+  }
+
+  function paintGuion() {
+    var g = GUION[current] || { who: '', text: '', do: '' };
+    guionWho.textContent = g.who;
+    guionText.innerHTML = g.text;
+    guionDo.textContent = g.do ? '▸ ' + g.do : '';
+  }
+
+  function show(i) {
+    current = Math.max(0, Math.min(i, slides.length - 1));
+    slides.forEach(function (s, k) {
+      s.classList.toggle('active', k === current);
+      s.classList.toggle('visible', k === current);
+    });
+    counter.textContent = pad2(current + 1) + ' / ' + pad2(slides.length);
+    progress.style.width = ((current + 1) / slides.length * 100) + '%';
+    paintGuion();
+    /* las demos con animación solo corren cuando se ven */
+    if (slides[current].dataset.demo === 'noise') renderNoise();
+    if (slides[current].dataset.demo === 'calc') renderCalc();
+  }
+
+  function next() { show(current + 1); }
+  function prev() { show(current - 1); }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.target.isContentEditable) return;
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { show(0); }
+    else if (e.key === 'End') { show(slides.length - 1); }
+    else if (e.key === 'g' || e.key === 'G') { guionBox.classList.toggle('show'); }
+  });
+
+  document.getElementById('btnNext').addEventListener('click', next);
+  document.getElementById('btnPrev').addEventListener('click', prev);
+
+  var wheelLock = false;
+  window.addEventListener('wheel', function (e) {
+    if (wheelLock || Math.abs(e.deltaY) < 22) return;
+    wheelLock = true;
+    if (e.deltaY > 0) next(); else prev();
+    setTimeout(function () { wheelLock = false; }, 650);
+  }, { passive: true });
+
+  var tx = 0, ty = 0;
+  window.addEventListener('touchstart', function (e) {
+    tx = e.changedTouches[0].clientX; ty = e.changedTouches[0].clientY;
+  }, { passive: true });
+  window.addEventListener('touchend', function (e) {
+    var dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) { dx < 0 ? next() : prev(); }
+  }, { passive: true });
+
+  window.addEventListener('resize', scaleStage);
+  scaleStage();
+
+  function fmtTime(t) {
+    if (t < 1e-3) return (t * 1e6).toFixed(t * 1e6 < 100 ? 1 : 0) + ' µs';
+    return (t * 1e3).toFixed(t * 1e3 < 10 ? 2 : 1) + ' ms';
+  }
+
+  /* =========================================================
+     2. DEMO 1 — EXPOSICIÓN (ventilador)
+     Se acumulan sub-instantes del giro durante t_exp, igual
+     que hace un sensor real. No es un blur de CSS.
+     ========================================================= */
+  var RPM = 3000, OMEGA = RPM / 60 * 2 * Math.PI, T_REF = 400e-6;
+  var fanCanvas = document.getElementById('fanCanvas');
+  var fanCtx = fanCanvas.getContext('2d');
+  var fanRange = document.getElementById('fanRange');
+  var fanVal = document.getElementById('fanVal'), fanDeg = document.getElementById('fanDeg');
+  var fanLux = document.getElementById('fanLux'), fanVerdict = document.getElementById('fanVerdict');
+  var theta = 0, lastTs = 0;
+
+  function fanExposure() { return 10e-6 * Math.pow(2000, fanRange.value / 1000); }
+
+  function drawBlades(ctx, cx, cy, R, ang, alpha) {
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+    ctx.globalAlpha = alpha; ctx.fillStyle = '#FFF3DC';
+    for (var b = 0; b < 3; b++) {
+      ctx.save(); ctx.rotate(b * 2 * Math.PI / 3);
+      ctx.beginPath();
+      ctx.moveTo(0, -R * 0.13);
+      ctx.quadraticCurveTo(R * 0.55, -R * 0.42, R * 0.98, -R * 0.12);
+      ctx.quadraticCurveTo(R * 0.72, R * 0.16, 0, R * 0.13);
+      ctx.closePath(); ctx.fill(); ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.12, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function renderFan() {
+    var W = fanCanvas.width, H = fanCanvas.height;
+    var t = fanExposure(), dTheta = OMEGA * t, E = t / T_REF;
+    var display = Math.pow(E, 1 / 1.8);
+    var N = Math.max(1, Math.min(200, Math.ceil(dTheta / (0.6 * Math.PI / 180))));
+
+    fanCtx.globalCompositeOperation = 'source-over';
+    fanCtx.globalAlpha = 1; fanCtx.fillStyle = '#08080b';
+    fanCtx.fillRect(0, 0, W, H);
+    fanCtx.globalCompositeOperation = 'lighter';
+    var per = Math.min(1, display / N);
+    for (var i = 0; i < N; i++) {
+      drawBlades(fanCtx, W / 2, H / 2, H * 0.40, theta + dTheta * (i / Math.max(1, N - 1) - 0.5), per);
+    }
+    fanCtx.globalCompositeOperation = 'source-over';
+    fanCtx.globalAlpha = 1;
+
+    var deg = dTheta * 180 / Math.PI;
+    fanVal.textContent = fmtTime(t);
+    fanDeg.textContent = (deg < 1 ? deg.toFixed(2) : deg < 100 ? deg.toFixed(1) : deg.toFixed(0)) + '°';
+    fanLux.textContent = (E < 0.1 ? E.toFixed(3) : E < 10 ? E.toFixed(2) : E.toFixed(0)) + '×';
+
+    if (deg > 20) {
+      fanVerdict.className = 'verdict bad';
+      fanVerdict.textContent = 'Hay luz de sobra, pero las aspas desaparecieron.';
+    } else if (deg > 2) {
+      fanVerdict.className = 'verdict warn';
+      fanVerdict.textContent = 'Este es el trato: cambias nitidez por luz.';
+    } else if (E < 0.25) {
+      fanVerdict.className = 'verdict ok';
+      fanVerdict.textContent = 'Congelado… y casi a oscuras. Congelar cuesta luz.';
+    } else {
+      fanVerdict.className = 'verdict ok';
+      fanVerdict.textContent = 'Congelado y con luz suficiente: aquí sí trabaja la visión.';
+    }
+  }
+
+  function fanLoop(ts) {
+    var dt = lastTs ? Math.min(0.05, (ts - lastTs) / 1000) : 0;
+    lastTs = ts;
+    theta += dt * 1.6;
+    if (slides[current] && slides[current].dataset.demo === 'fan') renderFan();
+    requestAnimationFrame(fanLoop);
+  }
+  fanRange.addEventListener('input', renderFan);
+  renderFan();
+  requestAnimationFrame(fanLoop);
+
+  /* =========================================================
+     3. DEMO 2 — CALCULADORA DE ARRASTRE
+     arrastre[px] = v[mm/s] · t_exp[s] / GSD[mm/px]
+     Cámara de 1280 px cubriendo 1.2 m -> GSD = 0.9375 mm/px
+     Pelota de ping-pong: 40 mm (42.7 px)
+     ========================================================= */
+  var GSD = 1200 / 1280, BALL_MM = 40;
+  var blurCanvas = document.getElementById('blurCanvas');
+  var bCtx = blurCanvas.getContext('2d');
+  var vRange = document.getElementById('vRange'), tRange = document.getElementById('tRange');
+  var vVal = document.getElementById('vVal'), tVal = document.getElementById('tVal');
+  var calcMm = document.getElementById('calcMm'), calcPx = document.getElementById('calcPx');
+  var calcMax = document.getElementById('calcMax'), calcVerdict = document.getElementById('calcVerdict');
+  var calcBadge = document.getElementById('calcBadge'), calcMsg = document.getElementById('calcMsg');
+
+  var accCanvas = document.createElement('canvas');
+  var accCtx = accCanvas.getContext('2d');
+
+  function calcExposure() { return 1e-6 * Math.pow(10000, tRange.value / 1000); }
+
+  function renderCalc() {
+    var W = blurCanvas.width, H = blurCanvas.height;
+    var MM_PER_PX = 220 / W;                 // el lienzo abarca 220 mm de mesa
+    var vMs = Number(vRange.value), vMms = vMs * 1000;
+    var t = calcExposure();
+    var dMm = vMms * t, px = dMm / GSD, tMax = GSD / vMms;
+    var ballPx = BALL_MM / MM_PER_PX, smearPx = dMm / MM_PER_PX;
+    var x0 = W * 0.16, cy = H * 0.46;
+
+    if (accCanvas.width !== W) { accCanvas.width = W; accCanvas.height = H; }
+
+    /* cobertura acumulada en blanco, luego teñida: así no se satura */
+    accCtx.globalCompositeOperation = 'source-over';
+    accCtx.globalAlpha = 1; accCtx.clearRect(0, 0, W, H);
+    accCtx.globalCompositeOperation = 'lighter';
+    accCtx.fillStyle = '#fff';
+    var N = Math.max(1, Math.min(240, Math.round(smearPx / 1.5) + 1));
+    for (var i = 0; i < N; i++) {
+      accCtx.globalAlpha = 1 / N;
+      accCtx.beginPath();
+      accCtx.arc(x0 + ballPx / 2 + smearPx * (N === 1 ? 0 : i / (N - 1)), cy, ballPx / 2, 0, Math.PI * 2);
+      accCtx.fill();
+    }
+    accCtx.globalCompositeOperation = 'source-in';
+    accCtx.globalAlpha = 1;
+    var g = accCtx.createLinearGradient(x0, 0, x0 + Math.max(ballPx, smearPx), 0);
+    g.addColorStop(0, '#FFE3AE'); g.addColorStop(1, '#FFB020');
+    accCtx.fillStyle = g; accCtx.fillRect(0, 0, W, H);
+
+    bCtx.globalCompositeOperation = 'source-over'; bCtx.globalAlpha = 1;
+    bCtx.fillStyle = '#08080b'; bCtx.fillRect(0, 0, W, H);
+
+    /* línea de la mesa */
+    bCtx.strokeStyle = 'rgba(255,255,255,0.07)'; bCtx.lineWidth = 2;
+    bCtx.beginPath(); bCtx.moveTo(0, H * 0.84); bCtx.lineTo(W, H * 0.84); bCtx.stroke();
+
+    /* referencia: la pelota quieta */
+    bCtx.save();
+    bCtx.globalAlpha = 0.42; bCtx.strokeStyle = '#4de0d8';
+    bCtx.lineWidth = 2; bCtx.setLineDash([9, 7]);
+    bCtx.beginPath(); bCtx.arc(x0 + ballPx / 2, cy, ballPx / 2, 0, Math.PI * 2); bCtx.stroke();
+    bCtx.setLineDash([]);
+    bCtx.globalAlpha = 0.8; bCtx.fillStyle = 'rgba(53,224,216,0.8)';
+    bCtx.font = '21px "JetBrains Mono", monospace';
+    bCtx.fillText('pelota quieta · 40 mm', x0 - 4, cy + ballPx / 2 + 40);
+    bCtx.restore();
+
+    bCtx.drawImage(accCanvas, 0, 0);
+
+    /* barra de 1 px del sensor */
+    var onePx = Math.max(2, GSD / MM_PER_PX);
+    bCtx.fillStyle = 'rgba(53,224,216,0.9)';
+    bCtx.fillRect(W * 0.04, H - 52, onePx, 16);
+    bCtx.fillStyle = 'rgba(53,224,216,0.7)';
+    bCtx.font = '20px "JetBrains Mono", monospace';
+    bCtx.fillText('1 px del sensor', W * 0.04 + onePx + 14, H - 39);
+
+    /* lecturas */
+    vVal.textContent = vMs + ' m/s';
+    tVal.textContent = fmtTime(t);
+    calcMm.textContent = (dMm < 1 ? dMm.toFixed(3) : dMm < 100 ? dMm.toFixed(1) : dMm.toFixed(0)) + ' mm';
+    calcPx.textContent = (px < 10 ? px.toFixed(1) : Math.round(px)) + ' px';
+    calcMax.textContent = fmtTime(tMax);
+
+    if (px <= 1) {
+      calcVerdict.className = 'verdict ok';
+      calcBadge.className = 'badge ok'; calcBadge.textContent = 'Nítida';
+      calcMsg.textContent = 'El arrastre cabe en un píxel: la pelota sigue siendo una pelota.';
+    } else if (px <= 3) {
+      calcVerdict.className = 'verdict warn';
+      calcBadge.className = 'badge warn'; calcBadge.textContent = 'Al límite';
+      calcMsg.textContent = 'Se alcanza a detectar, pero el robot ya no sabe bien dónde pegarle.';
+    } else {
+      calcVerdict.className = 'verdict bad';
+      calcBadge.className = 'badge bad'; calcBadge.textContent = 'Inservible';
+      calcMsg.textContent = 'La pelota se vuelve una raya de ' + (px < 10 ? px.toFixed(1) : Math.round(px)) + ' píxeles.';
+    }
+  }
+  vRange.addEventListener('input', renderCalc);
+  tRange.addEventListener('input', renderCalc);
+
+  /* =========================================================
+     4. DEMO 3 — LUZ CONTRA GANANCIA
+     Modelo de ruido de disparo: el ruido va como la raíz de
+     los fotones. La ganancia multiplica señal Y ruido; el
+     estrobo mete fotones de verdad.
+     ========================================================= */
+  var noiseCanvas = document.getElementById('noiseCanvas');
+  var nCtx = noiseCanvas.getContext('2d');
+  var nTrange = document.getElementById('nTrange'), nGrange = document.getElementById('nGrange');
+  var nTval = document.getElementById('nTval'), nGval = document.getElementById('nGval');
+  var nPhot = document.getElementById('nPhot'), nSnr = document.getElementById('nSnr');
+  var nVerdict = document.getElementById('nVerdict'), nStrobe = document.getElementById('nStrobe');
+  var strobeOn = false;
+  var N_FULL = 2000;      // fotones que llenan el píxel con 10 ms de luz ambiente
+
+  function nExposure() { return 20e-6 * Math.pow(500, nTrange.value / 1000); }
+
+  /* escena base: pelota clara sobre mesa oscura, en escala 0..1 */
+  var sceneData = null;
+  function buildScene(W, H) {
+    var c = document.createElement('canvas'); c.width = W; c.height = H;
+    var x = c.getContext('2d');
+    var grad = x.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#2a2a33'); grad.addColorStop(1, '#14141a');
+    x.fillStyle = grad; x.fillRect(0, 0, W, H);
+    x.fillStyle = '#3a3a46'; x.fillRect(0, H * 0.72, W, 5);
+    var r = H * 0.22;
+    var bg = x.createRadialGradient(W * 0.5 - r * 0.3, H * 0.44 - r * 0.3, r * 0.1, W * 0.5, H * 0.44, r);
+    bg.addColorStop(0, '#ffffff'); bg.addColorStop(1, '#c9c6bf');
+    x.fillStyle = bg;
+    x.beginPath(); x.arc(W * 0.5, H * 0.44, r, 0, Math.PI * 2); x.fill();
+    return x.getImageData(0, 0, W, H);
+  }
+
+  /* ruido gaussiano (Box-Muller) */
+  function gauss() {
+    var u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  function renderNoise() {
+    var W = noiseCanvas.width, H = noiseCanvas.height;
+    if (!sceneData) sceneData = buildScene(W, H);
+
+    var t = nExposure();
+    var gainDb = Number(nGrange.value);
+    var gain = Math.pow(10, gainDb / 20);
+    var illum = strobeOn ? 60 : 1;                 // el estrobo mete fotones de verdad
+    var Nph = N_FULL * (t / 10e-3) * illum;        // fotones recogidos
+    var snr = Math.sqrt(Math.max(Nph, 0.0001));    // limitado por ruido de disparo
+
+    var out = nCtx.createImageData(W, H);
+    var src = sceneData.data, dst = out.data;
+    var sigma = (1 / Math.max(snr, 0.0001)) * gain * 255 * 0.55;
+    var scale = (Nph / N_FULL) * gain;
+
+    for (var i = 0; i < src.length; i += 4) {
+      var n = gauss() * sigma;
+      for (var k = 0; k < 3; k++) {
+        var v = src[i + k] * scale + n;
+        dst[i + k] = v < 0 ? 0 : v > 255 ? 255 : v;
+      }
+      dst[i + 3] = 255;
+    }
+    nCtx.putImageData(out, 0, 0);
+
+    nTval.textContent = fmtTime(t);
+    nGval.textContent = gainDb + ' dB';
+    nPhot.textContent = Nph >= 1000 ? Math.round(Nph).toLocaleString('es-MX')
+                      : Nph >= 10 ? Math.round(Nph) : Nph.toFixed(1);
+    nSnr.textContent = (snr >= 10 ? Math.round(snr) : snr.toFixed(1)) + ' : 1';
+    nSnr.className = 'sv ' + (snr >= 20 ? 'ok' : snr >= 7 ? '' : 'bad');
+
+    var brillo = scale;
+    if (strobeOn && snr >= 12) {
+      nVerdict.className = 'verdict ok';
+      nVerdict.textContent = 'Con estrobo: exposición corta, imagen limpia. Esta es la salida real.';
+    } else if (snr < 7) {
+      nVerdict.className = 'verdict bad';
+      nVerdict.textContent = 'El ruido se comió la pelota. La ganancia amplifica, no ilumina.';
+    } else if (brillo < 0.25) {
+      nVerdict.className = 'verdict warn';
+      nVerdict.textContent = 'Congelado, pero tan oscuro que no hay nada que medir.';
+    } else if (t > 2e-3) {
+      nVerdict.className = 'verdict warn';
+      nVerdict.textContent = 'Luz de sobra… pero con este tiempo ya sabemos qué le pasa al movimiento.';
+    } else {
+      nVerdict.className = 'verdict ok';
+      nVerdict.textContent = 'Imagen usable: suficiente luz y exposición corta.';
+    }
+  }
+
+  nTrange.addEventListener('input', renderNoise);
+  nGrange.addEventListener('input', renderNoise);
+  function toggleStrobe() {
+    strobeOn = !strobeOn;
+    nStrobe.classList.toggle('on', strobeOn);
+    nStrobe.setAttribute('aria-pressed', strobeOn ? 'true' : 'false');
+    renderNoise();
+  }
+  nStrobe.addEventListener('click', toggleStrobe);
+  nStrobe.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStrobe(); }
+  });
+
+  /* =========================================================
+     5. DEMO 4 — OBTURADOR GLOBAL CONTRA ROLLING
+     Global: todas las filas se leen en el mismo instante.
+     Rolling: la fila y se lee en t0 + (y/H)·barrido, así que
+     el objeto aparece desplazado y la imagen se inclina.
+     ========================================================= */
+  var shCanvas = document.getElementById('shutterCanvas');
+  var sCtx = shCanvas.getContext('2d');
+  var shRange = document.getElementById('shRange');
+  var shVal = document.getElementById('shVal'), shSkew = document.getElementById('shSkew');
+  var shReadout = document.getElementById('shReadout');
+  var READOUT = 15e-3;               // barrido típico de un rolling shutter
+  var shX = 0;
+
+  function drawTarget(ctx, x, cy, h, mmPerPx) {
+    /* poste vertical + pelota: lo clásico para ver el sesgo */
+    ctx.fillStyle = '#FFD79A';
+    ctx.fillRect(x - 10, cy - h / 2, 20, h);
+    ctx.beginPath(); ctx.arc(x, cy - h / 2 - 22, 20, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function renderShutter() {
+    var W = shCanvas.width, H = shCanvas.height;
+    var half = W / 2;
+    var v = Number(shRange.value);
+    var MM_PER_PX = 900 / half;
+    var skewMm = v * 1000 * READOUT;
+    var skewPx = skewMm / MM_PER_PX;
+
+    sCtx.fillStyle = '#08080b'; sCtx.fillRect(0, 0, W, H);
+    /* separador */
+    sCtx.strokeStyle = '#1e1e25'; sCtx.lineWidth = 2;
+    sCtx.beginPath(); sCtx.moveTo(half, 0); sCtx.lineTo(half, H); sCtx.stroke();
+
+    var cy = H * 0.52, objH = H * 0.46;
+
+    /* --- izquierda: obturador global --- */
+    sCtx.save();
+    sCtx.beginPath(); sCtx.rect(0, 0, half, H); sCtx.clip();
+    drawTarget(sCtx, shX % (half + 120) - 60, cy, objH, MM_PER_PX);
+    sCtx.restore();
+
+    /* --- derecha: rolling, banda por banda --- */
+    sCtx.save();
+    sCtx.beginPath(); sCtx.rect(half, 0, half, H); sCtx.clip();
+    var bands = 60, bh = H / bands;
+    for (var b = 0; b < bands; b++) {
+      var frac = b / (bands - 1);
+      sCtx.save();
+      sCtx.beginPath(); sCtx.rect(half, b * bh, half, bh + 1); sCtx.clip();
+      drawTarget(sCtx, half + (shX % (half + 120) - 60) + frac * skewPx, cy, objH, MM_PER_PX);
+      sCtx.restore();
+    }
+    sCtx.restore();
+
+    /* etiquetas */
+    sCtx.font = '24px "JetBrains Mono", monospace';
+    sCtx.fillStyle = 'rgba(53,224,216,0.9)';
+    sCtx.fillText('OBTURADOR GLOBAL', 28, 42);
+    sCtx.fillStyle = 'rgba(255,90,90,0.9)';
+    sCtx.fillText('ROLLING SHUTTER', half + 28, 42);
+
+    shVal.textContent = v + ' m/s';
+    shSkew.textContent = Math.round(skewMm) + ' mm';
+    shReadout.textContent = '15 ms';
+  }
+
+  function shutterLoop() {
+    if (slides[current] && slides[current].dataset.demo === 'shutter') {
+      shX += 3.2;
+      renderShutter();
+    }
+    requestAnimationFrame(shutterLoop);
+  }
+  shRange.addEventListener('input', renderShutter);
+  requestAnimationFrame(shutterLoop);
+
+  /* =========================================================
+     6. MODO EDICIÓN (tecla E)
+     ========================================================= */
+  var editToggle = document.getElementById('editToggle');
+  var hotzone = document.querySelector('.edit-hotzone');
+  var editing = false, hideTimer = null;
+  var EDITABLES = 'h1, h2, h3, p, td, th, .c-t, .c-b, .c-k, .d-t, .d-b, .p-v, .p-k, .speaker, .eyebrow';
+
+  function setEdit(on) {
+    editing = on;
+    document.body.classList.toggle('editing', on);
+    editToggle.classList.toggle('active', on);
+    editToggle.textContent = on ? 'listo' : 'editar';
+    document.querySelectorAll(EDITABLES).forEach(function (el) {
+      if (on) el.setAttribute('contenteditable', 'true');
+      else el.removeAttribute('contenteditable');
+    });
+  }
+  editToggle.addEventListener('click', function () { setEdit(!editing); });
+  hotzone.addEventListener('click', function () { setEdit(!editing); });
+  hotzone.addEventListener('mouseenter', function () { clearTimeout(hideTimer); editToggle.classList.add('show'); });
+  hotzone.addEventListener('mouseleave', function () {
+    hideTimer = setTimeout(function () { if (!editing) editToggle.classList.remove('show'); }, 400);
+  });
+  editToggle.addEventListener('mouseenter', function () { clearTimeout(hideTimer); });
+  editToggle.addEventListener('mouseleave', function () {
+    hideTimer = setTimeout(function () { if (!editing) editToggle.classList.remove('show'); }, 400);
+  });
+  document.addEventListener('keydown', function (e) {
+    if ((e.key === 'e' || e.key === 'E') && !e.target.isContentEditable) {
+      editToggle.classList.add('show'); setEdit(!editing);
+    }
+  });
+
+  /* arranque */
+  renderCalc();
+  renderNoise();
+  renderShutter();
+  show(0);
+})();
+</script>
+
+</body>
+</html>
